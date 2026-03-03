@@ -1,0 +1,7 @@
+- id: autodocstring-check
+  name: Check Docstring Coverage
+  entry: python -m autodocstring.integrations.precommit
+  language: system
+  types: [python]
+  pass_filenames: false
+  stages: [commit]
