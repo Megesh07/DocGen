@@ -2,17 +2,23 @@
 
 ## 1. Secret Management
 
-### GROQ_API_KEY
+### API Keys
 
-The Groq API key is the only external credential this application uses.
+DocGen uses two optional external credentials:
+
+| Secret           | Used For                                 | Where to Store                |
+| ---------------- | ---------------------------------------- | ----------------------------- |
+| `GROQ_API_KEY`   | Groq LLM API (summary generation)        | `.env` file or Render env var |
+| `GEMINI_API_KEY` | Google Gemini LLM (alternative provider) | `.env` file or Render env var |
 
 **Rules:**
-- Store it **only** in a `.env` file in the repository root
-- Never hardcode it in source code, configuration files, or commit messages
-- Never log it — the backend strips API keys from all error messages before returning responses
-- Rotate it immediately if you suspect it was exposed — visit [console.groq.com/keys](https://console.groq.com/keys)
 
-**Gitignore protection** (already configured in `.gitignore`):
+- Store secrets **only** in `.env` (local) or in your hosting dashboard (cloud)
+- Never hardcode them in source code or commit messages
+- Never log them — the backend strips API keys from all error responses
+- Rotate immediately if exposed: [console.groq.com/keys](https://console.groq.com/keys)
+
+**Gitignore protection** (already configured):
 
 ```gitignore
 .env
@@ -22,145 +28,178 @@ The Groq API key is the only external credential this application uses.
 **/.env.*.local
 ```
 
-If you add additional secrets (e.g., a database URL, another LLM key), add them to `.env` and verify the above patterns cover them.
-
 ### Checking for accidental commits
 
-If you suspect a secret was committed:
-
 ```bash
-# Search all commits for common secret patterns
-git log -p | grep -E "(GROQ_API_KEY|gsk_|sk-)[^\s]+"
+git log -p | grep -E "(GROQ_API_KEY|GEMINI_API_KEY|gsk_)[^\s]+"
 ```
 
-If found, rotate the key immediately and use `git filter-repo` or BFG Repo-Cleaner to rewrite history.
+If found, rotate immediately and rewrite history with `git filter-repo` or BFG Repo-Cleaner.
 
 ---
 
 ## 2. CORS Configuration
 
-Cross-Origin Resource Sharing (CORS) is enforced by FastAPI middleware in `app.py`.
+CORS is enforced by FastAPI middleware in `app.py`:
 
-**Default (development):**
-```
-ALLOWED_ORIGINS=http://localhost:5173
-```
-
-**Production:** Set `ALLOWED_ORIGINS` to your exact frontend domain:
-```env
-ALLOWED_ORIGINS=https://yourdomain.com
-```
-
-Never use `*` (wildcard) as `ALLOWED_ORIGINS` in production — it allows any website to call your backend API.
-
-The CORS configuration in `app.py`:
 ```python
+_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,  # from env var
-    allow_credentials=True,
+    allow_origins=_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 ```
 
+**Local development (default):**
+
+```env
+ALLOWED_ORIGINS=http://localhost:5173
+```
+
+**Production (Render → Vercel):**
+
+```env
+ALLOWED_ORIGINS=https://doc-gen-fo6v.vercel.app
+```
+
+> Never use `*` as `ALLOWED_ORIGINS` in production — it allows any website to call your API.
+
 ---
 
-## 3. Input Validation
+## 3. Path Sandbox — `_resolve_safe_path`
 
-All API request bodies are validated by **Pydantic v2 models** defined in `src/autodocstring/api/schemas.py`. Pydantic rejects requests that:
-- Contain fields of the wrong type
-- Are missing required fields
-- Contain values outside allowed ranges
+All endpoints that accept a file path parameter (`/preview`, `/file`, `/save_file`) pass it through `_resolve_safe_path()`:
 
-### Docstring style input
+```python
+def _resolve_safe_path(raw_path: str) -> Path:
+    resolved = Path(raw_path).resolve()
 
-The `style` parameter is sanitized via `_normalize_style()` before use — only the values `google`, `numpy`, `rest`, `epytext`, and `sphinx` are accepted. Any other value is rejected with `HTTP 422 Unprocessable Entity`.
+    # Allow paths under the app's project root
+    in_project = False
+    try:
+        resolved.relative_to(PROJECT_ROOT)
+        in_project = True
+    except ValueError:
+        pass
 
-### File upload
+    # Also allow paths under the session directory (which may be /tmp on cloud)
+    if not in_project:
+        try:
+            resolved.relative_to(_SESSIONS_ROOT)
+            in_project = True
+        except ValueError:
+            pass
+
+    if not in_project:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="Path not found")
+    return resolved
+```
+
+**Why two roots?** On Render, `SESSION_DIR` is set to `/tmp`, which is outside the app's working directory (`PROJECT_ROOT`). Files uploaded by users are stored in the session workspace under `_SESSIONS_ROOT` (`/tmp`). Without allowing `_SESSIONS_ROOT`, every `/preview` and `/file` request would return 403.
+
+**Security guarantee:** A caller cannot supply a path like `/etc/passwd` or `../../secret` because `Path.resolve()` normalises all traversal sequences before the prefix check is applied.
+
+---
+
+## 4. File Upload Security
 
 Uploaded files are:
-1. Validated to have a `.py` extension before saving
-2. Written to a session-scoped directory, not the system temp directory
-3. Never executed — they are only parsed with Python's `ast` module
+
+1. **Extension-validated** — only `.py` files are accepted; others are silently skipped
+2. **Sanitized** — filenames have leading `/`/`\` and `..` sequences stripped before saving:
+   ```python
+   safe_rel_path = upload.filename.lstrip("/\\").replace("..", "")
+   ```
+3. **Stored in a session-scoped directory** — `_SESSIONS_DIR/<session_id>/workspace/`
+4. **Never executed** — files are parsed only with Python's `ast` module; no `exec`, `eval`, or subprocess calls
 
 ---
 
-## 4. Session Isolation
+## 5. Session Isolation
 
-Each upload creates a **UUID-based session** (e.g., `3b7a1f22-ec4a-4d8a-9d6b-...`). Session directories are stored at:
+Each upload creates a UUID v4 session. Session directories are stored at:
 
 ```
-.autodocstring_sessions/
+_SESSIONS_DIR/
 └── <session-id>/
-    ├── original/   ← unmodified uploaded files
-    └── current/    ← working copies (apply/undo affects these only)
+    └── workspace/         ← uploaded .py files
+```
+
+Batch snapshots (created during generation for undo/cancel support):
+
+```
+_SESSIONS_DIR/
+└── <batch-id>/
+    └── <md5hash>_<filename>  ← snapshot copies
 ```
 
 **Isolation guarantees:**
-- Sessions are independent — one session cannot read or write another session's files
-- Session IDs are UUIDs (Version 4, cryptographically random), making enumeration infeasible
-- The session ID is generated server-side and returned to the browser on session creation
+
+- Sessions are completely independent — one session cannot read or write another session's files
+- Session IDs are UUID v4 (cryptographically random); enumeration is infeasible
+- Session IDs are generated server-side and returned only to the requesting browser
+- Expired sessions are purged by a background task every 30 minutes
 
 ---
 
-## 5. No Persistent User Data
+## 6. No Persistent User Data
 
 DocGen **does not store user data permanently**:
 
-- Sessions are cleaned up automatically after `SESSION_TTL_HOURS` (default: 2 hours)
-- No user accounts, no authentication tokens, no uploaded file content is written to a database
-- Groq receives only the **function signature** (name, parameter names, return type) — the function body and any comments in the source code are never sent to external APIs
+- Sessions auto-expire after `SESSION_TTL_HOURS` (default: 2 hours)
+- No user accounts, no authentication, no database
+- Groq receives only the **function signature** (name, parameter names, return type) — never the function body, variable names, comments, or business logic
 
 ---
 
-## 6. LLM Prompt Safety
+## 7. LLM Prompt Safety
 
-The prompt sent to Groq is strictly controlled:
+The prompt sent to any LLM provider is strictly controlled:
 
 ```python
-# Only this information leaves your machine
+# Only this leaves your machine
 f"Write a single-sentence Python docstring summary for: {func_signature}"
 # Example: "Write a single-sentence Python docstring summary for: calculate_tax(income: float, rate: float) -> float"
 ```
 
-No source code, no docstrings, no variable names from the function body are included in the prompt. This ensures:
-- No accidental leakage of business logic or private variable names to the LLM provider
+No source code body, no docstrings, no variable names from the function body are included. This ensures:
+
+- No leakage of business logic or proprietary variable names
 - The LLM cannot hallucinate parameter names because it is not given the body
+- If the LLM returns malformed output, only the summary placeholder is affected; all structured sections (Args, Returns, Raises) are template-rendered
 
 ---
 
-## 7. Syntax Safety
+## 8. Syntax Safety
 
-The `SafeApplier` re-parses every file with `ast.parse()` after writing. If the generated docstring causes a syntax error (which should not happen under normal conditions but is defensively checked), the original file content is **automatically restored** before any error is returned to the caller.
+The `_insert_docstrings()` applier re-parses every file with `ast.parse()` after writing. If the generated docstring causes a syntax error (defensive check — should not happen under normal operation), the original file content is **automatically restored** before the error is returned to the caller.
 
-This means a malformed LLM response can never corrupt the user's source file.
+A malformed LLM or template response can never corrupt the user's source file.
 
 ---
 
-## 8. Dependency Security
-
-Run a pip audit to check for known vulnerabilities:
+## 9. Dependency Auditing
 
 ```bash
+# Python
 pip install pip-audit
 pip-audit
-```
 
-Frontend dependencies can be audited with:
-
-```bash
+# Frontend
 cd project/frontend
 npm audit
 ```
 
-Keep dependencies up to date. The lockfile (`package-lock.json`) is committed so frontend dependency trees are reproducible.
+Keep `package-lock.json` committed so dependency trees are reproducible across environments.
 
 ---
 
-## 9. Pre-commit Hook (Optional)
-
-The integration module `src/autodocstring/integrations/precommit.py` provides a pre-commit hook that scans staged `.py` files before every commit. This is useful for enforcing docstring coverage on a team:
+## 10. Pre-commit Hook (Optional)
 
 ```yaml
 # .pre-commit-config.yaml
@@ -176,16 +215,14 @@ repos:
 
 ---
 
-## 10. Security Checklist for Deployment
+## 11. Security Checklist for Production Deployment
 
-Before going to production, verify:
-
-- [ ] `GROQ_API_KEY` is set via environment variable, not hardcoded  
-- [ ] `.env` file is NOT committed to the repository  
-- [ ] `ALLOWED_ORIGINS` is set to the exact production frontend URL (not `*`)  
-- [ ] `SESSION_TTL_HOURS` is configured to a reasonable value (≤24 h)  
-- [ ] `--reload` flag is removed from the uvicorn command  
-- [ ] Backend is behind a reverse proxy (nginx/caddy) — do not expose uvicorn directly  
-- [ ] HTTPS is terminated at the reverse proxy  
-- [ ] `npm audit` shows 0 critical/high vulnerabilities  
-- [ ] `pip-audit` shows no known vulnerable packages  
+- [ ] `GROQ_API_KEY` / `GEMINI_API_KEY` set via env var, not in source code
+- [ ] `.env` is NOT committed
+- [ ] `ALLOWED_ORIGINS` set to exact production frontend URL (not `*`)
+- [ ] `SESSION_DIR` set to a writable directory (e.g. `/tmp` on Render)
+- [ ] `SESSION_TTL_HOURS` ≤ 24
+- [ ] `--reload` removed from uvicorn command
+- [ ] Backend behind HTTPS (Render handles this automatically)
+- [ ] `npm audit` — 0 critical/high issues
+- [ ] `pip-audit` — no known vulnerabilities

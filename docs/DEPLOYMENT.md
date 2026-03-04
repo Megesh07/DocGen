@@ -2,157 +2,159 @@
 
 ## Prerequisites
 
-| Requirement | Minimum | Notes |
-|-------------|---------|-------|
-| Python | 3.8 | 3.11 recommended; tested in CI with 3.11 |
-| pip | 22+ | ships with Python 3.11 |
-| Node.js | 18 LTS | for the React frontend |
-| npm | 9+ | included with Node.js 18 |
-| Git | any | for cloning |
+| Requirement | Minimum | Notes                    |
+| ----------- | ------- | ------------------------ |
+| Python      | 3.11    | Tested in CI with 3.11   |
+| pip         | 22+     | ships with Python 3.11   |
+| Node.js     | 18 LTS  | for the React frontend   |
+| npm         | 9+      | included with Node.js 18 |
+| Git         | any     | for cloning              |
 
 ---
 
 ## 1. Environment Variables
 
-Create a `.env` file in the repository root (it is gitignored). Only `GROQ_API_KEY` is optional — the application runs entirely offline without it (template-only docstrings).
+Create a `.env` file in the repository root (it is gitignored).
 
 ```env
 # ── LLM Integration (optional) ──────────────────────────────────
-GROQ_API_KEY=gsk_...          # From https://console.groq.com/keys
+GROQ_API_KEY=gsk_...              # From https://console.groq.com/keys
+GEMINI_API_KEY=...                # Google AI Studio (optional alternative)
 
-# ── Backend settings (optional overrides) ───────────────────────
+# ── Backend settings ─────────────────────────────────────────────
 ALLOWED_ORIGINS=http://localhost:5173   # Comma-separated CORS origins
-SESSION_DIR=.autodocstring_sessions     # Where session files are stored
-SESSION_TTL_HOURS=2                     # Session auto-cleanup (hours)
-LLM_MODEL=llama-3.3-70b-versatile      # Groq model name
+SESSION_DIR=.autodocstring_sessions     # Where session workspace dirs are stored
+                                        # On Render set to /tmp for writable disk
+SESSION_TTL_HOURS=2                     # Auto-cleanup TTL (hours)
+LLM_MODEL=llama-3.3-70b-versatile      # Groq model
 LLM_TIMEOUT=45                          # Groq request timeout (seconds)
+LLM_BASE_URL=http://127.0.0.1:11434    # Ollama base URL (local LLM fallback)
 ```
 
-> **Never commit your `GROQ_API_KEY`.** The `.gitignore` already protects `.env`, `.env.local`, and `.env.*.local`. See [SECURITY.md](SECURITY.md) for details.
+> **Never commit your `GROQ_API_KEY`.** The `.gitignore` already protects `.env`. See [SECURITY.md](SECURITY.md).
+
+**Provider auto-selection logic:**
+
+1. If `GROQ_API_KEY` is set → use Groq
+2. Else if Ollama is reachable at `LLM_BASE_URL` → use Ollama
+3. Else → template-only mode (no network calls, docstrings still generated)
 
 ---
 
-## 2. Backend Setup
+## 2. Local Development
 
-### 2a. Install Python dependencies
+### 2a. Backend
 
 ```bash
 # From repository root
 pip install -e .
+
+uvicorn autodocstring.api.app:app --reload --port 8001 --app-dir src
 ```
 
-This installs `autodocstring` in editable mode along with all runtime dependencies declared in `pyproject.toml`:
-
-- `fastapi`
-- `uvicorn[standard]`
-- `pydantic>=2.0`
-- `jinja2`
-- `pydocstyle`
-- `rich`
-- `tabulate`
-- `httpx` (Groq HTTP client)
-
-### 2b. Start the backend server
-
-```bash
-uvicorn autodocstring.api.app:app \
-    --reload \
-    --port 8001 \
-    --app-dir src
-```
-
-The API will be available at `http://localhost:8001`. You can verify it is running:
+Verify it is running:
 
 ```bash
 curl http://localhost:8001/api/v1/health
 ```
 
 Expected response:
+
 ```json
 {
   "status": "healthy",
   "llm_available": true,
   "session_count": 0,
-  "uptime_seconds": 12
+  "uptime_seconds": 4
 }
 ```
 
-If `llm_available` is `false`, the `GROQ_API_KEY` is not set — docstrings will still be generated using the deterministic template engine.
+If `llm_available` is `false`, no LLM key is set — generation still works via the template engine.
 
----
-
-## 3. Frontend Setup
-
-### 3a. Install Node dependencies
+### 2b. Frontend
 
 ```bash
 cd project/frontend
 npm install
-```
-
-### 3b. Configure the API URL
-
-The frontend reads `VITE_API_BASE` to locate the backend:
-
-```bash
-# project/frontend/.env.development  (already present in repo)
-VITE_API_BASE=http://localhost:8001/api/v1
-```
-
-You do not need to edit this for local development.
-
-### 3c. Start the dev server
-
-```bash
-cd project/frontend
 npm run dev
 ```
 
-The app will be available at `http://localhost:5173`.
+The app will be at `http://localhost:5173`.
+
+The frontend reads `VITE_API_BASE` from `project/frontend/.env.development` (already configured for local dev — no changes needed):
+
+```env
+VITE_API_BASE=http://localhost:8001/api/v1
+```
 
 ---
 
-## 4. Verifying the Full Stack
+## 3. Verifying the Full Stack
 
-1. Open `http://localhost:5173` in a browser.
-2. Upload all four files from the `demo/` folder (`01_clean_slate.py`, `02_mixed_state.py`, `03_confidence_stress.py`, `04_edge_cases.py`), or start with `demo/01_clean_slate.py` alone for a quick smoke-test.
-3. Select **Google** style and click **Analyze**.
-4. Click **Generate Docstrings**.
-5. In the Review phase, check the navigator dots: green (generated), blue (pre-existing), grey (skipped).
-6. Download the documented ZIP.
+1. Open `http://localhost:5173`
+2. Upload one or more `.py` files from `demo/` (e.g. `01_clean_slate.py`)
+3. Select a docstring style and click **Inspect**
+4. Click **Generate Docstrings**
+5. In the Review phase, check the navigator: 🟢 Generated · 🔵 Pre-existing · ⚪ Skipped
+6. Click **Download Project** to get the documented ZIP
 
-See `demo/README.md` for a detailed per-file breakdown of expected behaviour.
-
-If any phase fails, check the browser console and the uvicorn terminal for errors.
+If a phase fails, check the browser console and the uvicorn terminal.
 
 ---
 
-## 5. Production Deployment
+## 4. Cloud Deployment (Production)
 
-### 5a. Build the frontend
+The production deployment uses:
+
+- **Backend → [Render](https://render.com)** (free tier, auto-deploy on `git push`)
+- **Frontend → [Vercel](https://vercel.com)** (free tier, auto-deploy on `git push`)
+
+### 4a. Backend — Render
+
+1. Create a new **Web Service** on Render pointing to your GitHub repo
+2. Set the **Build Command**:
+   ```
+   pip install -e .
+   ```
+3. Set the **Start Command**:
+   ```
+   uvicorn autodocstring.api.app:app --host 0.0.0.0 --port $PORT --app-dir src
+   ```
+4. Add the following **Environment Variables** in the Render dashboard:
+
+   | Variable            | Value                                |
+   | ------------------- | ------------------------------------ |
+   | `GROQ_API_KEY`      | `gsk_...`                            |
+   | `ALLOWED_ORIGINS`   | `https://your-vercel-app.vercel.app` |
+   | `SESSION_DIR`       | `/tmp`                               |
+   | `SESSION_TTL_HOURS` | `2`                                  |
+
+   > **Important:** Set `SESSION_DIR=/tmp` on Render because the app directory is read-only. The path sandbox in `_resolve_safe_path` is aware of this and allows both `PROJECT_ROOT` and `SESSION_DIR` as valid roots.
+
+5. Every `git push` to the connected branch triggers an automatic redeploy.
+
+### 4b. Frontend — Vercel
+
+1. Import your GitHub repo on Vercel
+2. Set **Framework Preset** to `Vite`
+3. Set **Root Directory** to `project/frontend`
+4. Add the following **Environment Variable**:
+
+   | Variable        | Value                                             |
+   | --------------- | ------------------------------------------------- |
+   | `VITE_API_BASE` | `https://your-render-backend.onrender.com/api/v1` |
+
+5. Every `git push` triggers an automatic redeploy.
+
+### 4c. Self-hosted (nginx)
 
 ```bash
+# Build the frontend
 cd project/frontend
 npm run build
-```
+# Output: project/frontend/dist/
 
-This produces a `project/frontend/dist/` directory containing static HTML/JS/CSS.
-
-### 5b. Serve static files with FastAPI
-
-The FastAPI app can serve the built frontend directly:
-
-```python
-# Already implemented in app.py when SERVE_STATIC=1
-from fastapi.staticfiles import StaticFiles
-app.mount("/", StaticFiles(directory="project/frontend/dist", html=True))
-```
-
-Set `SERVE_STATIC=1` and point the dist path to your build output.
-
-### 5c. Run without `--reload` in production
-
-```bash
+# Run backend (no --reload in production)
 uvicorn autodocstring.api.app:app \
     --host 0.0.0.0 \
     --port 8001 \
@@ -160,9 +162,7 @@ uvicorn autodocstring.api.app:app \
     --app-dir src
 ```
 
-> Do **not** use `--reload` in production — it adds file-system watchers and crashes on code errors.
-
-### 5d. Reverse proxy (nginx example)
+nginx configuration:
 
 ```nginx
 server {
@@ -184,25 +184,13 @@ server {
 }
 ```
 
-Remember to set `ALLOWED_ORIGINS=https://yourdomain.com` so CORS allows the browser to call the backend.
+Set `ALLOWED_ORIGINS=https://yourdomain.com` to match your exact frontend domain.
 
 ---
 
-## 6. Remote LLM Access (Groq Cloud)
+## 5. GitHub Actions CI
 
-If deploying on a VM without internet access to Groq, you can tunnel using ngrok:
-
-```bash
-ngrok http 8001
-```
-
-See [docs/NGROK_OLLAMA_REPORT.md](NGROK_OLLAMA_REPORT.md) for the detailed setup that was used during Infosys evaluation.
-
----
-
-## 7. GitHub Actions CI
-
-The workflow at `.github/workflows/ci.yml` runs automatically on every `push` and `pull_request`:
+The workflow at `.github/workflows/ci.yml` runs on every `push` and `pull_request`:
 
 ```yaml
 jobs:
@@ -217,29 +205,25 @@ jobs:
       - run: pytest --tb=short
 ```
 
-### Running CI locally
+To reproduce locally:
 
 ```bash
-# Install dev extras (pytest, pytest-cov, black, mypy, flake8)
 pip install -e ".[dev]"
-
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src/autodocstring --cov-report=term-missing
+pytest --tb=short
 ```
 
 ---
 
-## 8. Common Issues
+## 6. Common Issues
 
-| Problem | Cause | Fix |
-|---------|-------|-----|
-| `uvicorn: command not found` | Package not installed | `pip install -e .` from repo root |
-| `Module autodocstring not found` | Wrong `--app-dir` | Must pass `--app-dir src` |
-| `CORS blocked in browser` | `ALLOWED_ORIGINS` mismatch | Set `ALLOWED_ORIGINS=http://localhost:5173` |
-| Frontend shows "Cannot connect to backend" | Backend not running | Start uvicorn first |
-| `npm install` fails | Old Node.js | Upgrade to Node.js 18 LTS |
-| `GROQ_API_KEY invalid` | Wrong key format | Keys start with `gsk_`; copy from Groq console |
-| Sessions not cleaned up | `SESSION_TTL_HOURS` too high | Lower TTL or manually delete `.autodocstring_sessions/` |
+| Problem                                      | Cause                                              | Fix                                                    |
+| -------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------ |
+| `uvicorn: command not found`                 | Package not installed                              | `pip install -e .` from repo root                      |
+| `Module autodocstring not found`             | Wrong `--app-dir`                                  | Must pass `--app-dir src`                              |
+| `CORS blocked in browser`                    | `ALLOWED_ORIGINS` mismatch                         | Set `ALLOWED_ORIGINS` to exact frontend origin         |
+| `403 Access denied` on `/preview` or `/file` | `SESSION_DIR` outside `PROJECT_ROOT`               | Set `SESSION_DIR=/tmp` and redeploy backend            |
+| Frontend shows "Cannot connect to backend"   | Backend not running or wrong `VITE_API_BASE`       | Verify backend URL in `.env.development`               |
+| `npm install` fails                          | Old Node.js version                                | Upgrade to Node.js 18 LTS                              |
+| `GROQ_API_KEY invalid`                       | Wrong key format                                   | Keys start with `gsk_`; copy from Groq console         |
+| Render build fails                           | Read-only filesystem                               | Ensure `SESSION_DIR=/tmp` is set in Render env vars    |
+| Sessions not cleaned up                      | `SESSION_TTL_HOURS` too high or no background task | Background task starts automatically on server startup |
