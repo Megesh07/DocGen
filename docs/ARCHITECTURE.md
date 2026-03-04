@@ -51,7 +51,12 @@ DocGen/
 │       └── vite.config.ts
 │
 ├── tests/                      # pytest test suite
-├── demo/                       # Example Python files (5 categories)
+├── demo/                       # 4 demo Python files covering every edge case
+│   ├── 01_clean_slate.py       # Fully typed, zero docstrings → 100 % AUTO_APPLY
+│   ├── 02_mixed_state.py       # Pre-existing docs, ignore directives, undocumented mix
+│   ├── 03_confidence_stress.py # Missing types, high branches, generators → REVIEW/SKIP zones
+│   ├── 04_edge_cases.py        # @dataclass, @property, ABC, async generator, closures, Union
+│   └── README.md               # Per-file demo walkthrough
 ├── docs/                       # Project documentation
 ├── .github/workflows/ci.yml    # GitHub Actions CI
 ├── pyproject.toml              # Python package metadata + deps

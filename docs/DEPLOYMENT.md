@@ -115,11 +115,13 @@ The app will be available at `http://localhost:5173`.
 ## 4. Verifying the Full Stack
 
 1. Open `http://localhost:5173` in a browser.
-2. Upload the demo file `demo/01_no_docstrings/calculator.py`.
+2. Upload all four files from the `demo/` folder (`01_clean_slate.py`, `02_mixed_state.py`, `03_confidence_stress.py`, `04_edge_cases.py`), or start with `demo/01_clean_slate.py` alone for a quick smoke-test.
 3. Select **Google** style and click **Analyze**.
 4. Click **Generate Docstrings**.
-5. Review the diff in the Review phase.
-6. Download the documented file.
+5. In the Review phase, check the navigator dots: green (generated), blue (pre-existing), grey (skipped).
+6. Download the documented ZIP.
+
+See `demo/README.md` for a detailed per-file breakdown of expected behaviour.
 
 If any phase fails, check the browser console and the uvicorn terminal for errors.
 

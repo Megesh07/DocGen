@@ -193,22 +193,23 @@ black src/autodocstring
 
 ## 8. Testing the Demo Files
 
-The `demo/` directory contains 5 categories of Python files, useful for manual end-to-end testing:
+The `demo/` directory contains **4 flat Python files** that collectively cover every scenario the model handles, useful for manual end-to-end testing:
 
-| Folder | What it tests |
-|--------|---------------|
-| `01_no_docstrings/` | All functions undocumented — maximum generation coverage expected |
-| `02_partial_docstrings/` | Mix of documented and undocumented — should not overwrite existing ones |
-| `03_style_mismatch/` | Existing docstrings in wrong style — tests rewrite_existing logic |
-| `04_complex_patterns/` | Async, algorithms, design patterns — tests confidence scoring under complexity |
-| `05_edge_cases/` | Dataclasses, decorators, generators — tests parser edge cases |
+| File | What it tests |
+|------|---------------|
+| `01_clean_slate.py` | All functions fully typed, zero docstrings → 100 % coverage, all AUTO_APPLY |
+| `02_mixed_state.py` | Pre-existing complete docstrings preserved; `# autodoc: ignore` directive skipped; undocumented functions generated |
+| `03_confidence_stress.py` | Missing type hints, high branch count (>8), generator functions, `*args`/`**kwargs` → exercises REVIEW-flagged and SKIP zones |
+| `04_edge_cases.py` | `@dataclass`, `@property` getter+setter, `@abstractmethod`, context manager, `async` generator, closures, `Union`/`Optional`, `pass`/`raise`-only bodies, `__dunder__` methods |
 
 Upload these through the web UI at `http://localhost:5173` or run them directly:
 
 ```bash
 # Command-line scan (no web UI)
-python -m autodocstring scan demo/01_no_docstrings/calculator.py --style google
+python -m autodocstring scan demo/01_clean_slate.py --style google
 ```
+
+For a full walkthrough of per-file expected behaviour, see `demo/README.md`.
 
 ---
 
