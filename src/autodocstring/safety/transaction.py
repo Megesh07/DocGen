@@ -14,6 +14,7 @@ Phase 2 (crash recovery):
 The caller receives a ``TransactionResult`` with the outcome.
 """
 import logging
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,7 +24,8 @@ from autodocstring.safety.applier import SafeApplier
 
 logger = logging.getLogger(__name__)
 
-_BACKUP_ROOT = Path(".autodocstring_backup")
+# Allow override via env var so cloud deployments (e.g. Render) can point to /tmp
+_BACKUP_ROOT = Path(os.getenv("BACKUP_DIR", ".autodocstring_backup"))
 
 
 @dataclass

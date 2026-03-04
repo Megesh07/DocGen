@@ -6,11 +6,11 @@ services:
     plan: free
     branch: main
 
-    # Install the package with the Groq HTTP client included
-    buildCommand: pip install -e ".[llm]"
+    # Install all runtime dependencies (including httpx for Groq LLM support)
+    buildCommand: pip install -r requirements.txt
 
-    # $PORT is injected by Render; --app-dir tells uvicorn where the package lives
-    startCommand: uvicorn autodocstring.api.app:app --host 0.0.0.0 --port $PORT --app-dir src
+    # PYTHONPATH=src (set below) makes `autodocstring` importable without editable install
+    startCommand: uvicorn autodocstring.api.app:app --host 0.0.0.0 --port $PORT
 
     # Health check — Render marks the service as healthy when this returns 200
     healthCheckPath: /api/v1/health

@@ -1,0 +1,13 @@
+# Runtime dependencies for DocGen backend
+# Generated from pyproject.toml [project.dependencies] + [project.optional-dependencies.llm]
+# Used by Render: pip install -r requirements.txt
+
+pydocstyle>=6.0.0
+toml>=0.10.2
+jinja2>=3.0.0
+rich>=13.0.0
+tabulate>=0.9.0
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+pydantic>=2.0.0
+httpx>=0.24.0
