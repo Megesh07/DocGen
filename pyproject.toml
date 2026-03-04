@@ -53,9 +53,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Megesh07/Automated-Python-Docstring-Generator"
-Repository = "https://github.com/Megesh07/Automated-Python-Docstring-Generator"
-Issues = "https://github.com/Megesh07/Automated-Python-Docstring-Generator/issues"
+Homepage = "https://github.com/Megesh07/DocGen"
+Repository = "https://github.com/Megesh07/DocGen"
+Issues = "https://github.com/Megesh07/DocGen/issues"
 
 
 

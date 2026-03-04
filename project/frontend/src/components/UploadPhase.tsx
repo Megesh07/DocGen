@@ -142,8 +142,8 @@ export function UploadPhase({ onFiles, loading, fileCount = 0 }: Props) {
             </div>
           ))}
           <div style={{ flex: '1 1 90px', minWidth: 90, paddingRight: 12, marginBottom: 8 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-accent)', letterSpacing: -0.5 }}>Local AI</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>No data sent to cloud</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-accent)', letterSpacing: -0.5 }}>Groq API</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>Fast cloud inference</div>
           </div>
         </div>
       </div>

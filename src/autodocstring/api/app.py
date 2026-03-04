@@ -138,9 +138,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AutoDocstring API", version=_API_VERSION, lifespan=lifespan)
 
+_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -178,9 +179,20 @@ def _resolve_safe_path(raw_path: str) -> Path:
 
 def _build_provider(name: str):
     if name == "local":
+        # Prefer Groq when GROQ_API_KEY is present; fall back to Ollama.
+        if os.getenv("GROQ_API_KEY"):
+            try:
+                from autodocstring.generator.groq_provider import GroqProvider
+                return GroqProvider()
+            except Exception as e:
+                print(f"Failed to load GroqProvider: {e}")
+                # Fall through to Ollama below
         try:
             from autodocstring.generator.ollama_provider import OllamaProvider
-            return OllamaProvider()
+            _base = os.getenv("LLM_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+            if _base.endswith("/api/generate"):
+                _base = _base[: -len("/api/generate")]
+            return OllamaProvider(url=_base + "/api/generate")
         except Exception as e:
             print(f"Failed to load OllamaProvider: {e}")
             return None
@@ -1169,3 +1181,8 @@ def _deprecated_health():
     raise HTTPException(status_code=410, detail="Endpoint moved to /api/v1/health")
 
 app.include_router(router)
+
+if __name__ == "__main__":
+    import uvicorn
+    PORT = int(os.getenv("PORT", "8001"))
+    uvicorn.run("autodocstring.api.app:app", host="0.0.0.0", port=PORT, reload=False)

@@ -196,10 +196,10 @@ def _insert_docstrings(
     # Build map: lineno → result
     result_by_lineno = {r.lineno: r for r in results}
 
-    # Collect all function/method nodes sorted in reverse order
+    # Collect all function/method/class nodes sorted in reverse order
     nodes = []
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if node.lineno in result_by_lineno:
                 nodes.append(node)
 
@@ -208,7 +208,7 @@ def _insert_docstrings(
 
     for node in nodes:
         result = result_by_lineno[node.lineno]
-        # Find insert position: line after the def: line
+        # Find insert position: line after the def/class: line
         def_line_idx = _find_def_end(lines, node.lineno)
         if def_line_idx is None:
             skip_records.append(

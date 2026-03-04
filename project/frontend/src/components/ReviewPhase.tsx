@@ -34,7 +34,7 @@ function Ring({ pct, color, size = 80 }: { pct: number; color: string; size?: nu
 }
 
 function covColor(pct: number) {
-  return pct >= 70 ? '#059669' : pct >= 40 ? '#d97706' : '#c2410c';
+  return pct >= 70 ? '#047857' : pct >= 40 ? '#d97706' : '#c2410c';
 }
 
 interface Props {
@@ -177,7 +177,7 @@ export function ReviewPhase({
           maxHeight: expanded ? 500 : 0,
           transition: 'max-height 0.35s cubic-bezier(0.4,0,0.2,1)',
           borderBottom: '1px solid var(--border)',
-          background: 'var(--bg-page)',
+          background: '#ffffff',
         }}
       >
         <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', maxHeight: 500 }}>
@@ -244,7 +244,7 @@ export function ReviewPhase({
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: 0.8 }}>After</span>
                 <span style={{ fontSize: 11, color: '#059669', fontWeight: 600 }}>+{added} added · {afterClamped}% ↑</span>
               </div>
-              <div style={{ padding: '12px 16px', background: 'rgba(5,150,105,0.03)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ padding: '12px 16px', background: '#ffffff', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     <Ring pct={afterClamped} color={covColor(afterClamped)} size={76} />
@@ -276,7 +276,7 @@ export function ReviewPhase({
                       return (
                         <div key={f.file} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                           <code style={{ fontSize: 10, fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace", color: '#059669', width: 120, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</code>
-                          <div style={{ flex: 1 }}><CovBar pct={afterPct} color='#059669' height={5} /></div>
+                          <div style={{ flex: 1 }}><CovBar pct={afterPct} color='#047857' height={5} /></div>
                           {wasGenerated
                             ? <span style={{ fontSize: 8, fontWeight: 700, color: '#059669', background: 'rgba(5,150,105,0.12)', border: '1px solid rgba(5,150,105,0.3)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>AI</span>
                             : <span style={{ fontSize: 10, fontWeight: 700, color: '#059669', width: 28, textAlign: 'right', flexShrink: 0 }}>{afterPct}%</span>}

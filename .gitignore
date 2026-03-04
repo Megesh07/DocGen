@@ -75,6 +75,16 @@ dmypy.json
 .autodocstring_sessions/
 .autodocstring_backup/
 
+# Node/Vite artifacts (multi-frontend)
+**/node_modules/
+**/.vite/
+
+# Local env overrides (may contain real secrets — never commit)
+.env.local
+.env.*.local
+**/.env.local
+**/.env.*.local
+
 # Backup files
 *.bak
 *.backup

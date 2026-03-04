@@ -362,7 +362,7 @@ class HybridDocstringEngine:
         base_docstring = self._generator.generate_function_docstring(metadata)
 
         # --- Enhancement layer (LLM summary only) ---
-        final_docstring, used_llm = self._maybe_enhance_summary(base_docstring, metadata, scoring)
+        final_docstring, used_llm = self._maybe_enhance_summary(base_docstring, metadata, scoring, source_lines=source_lines)
         
         gen_type = "hybrid" if used_llm else "template"
 
@@ -386,6 +386,74 @@ class HybridDocstringEngine:
                 cache_path.write_text(json.dumps(self._cache, indent=2), "utf-8")
         return res
 
+    def generate_class(self, cls_meta, filepath: str = "", source_lines=None) -> "DocstringResult":
+        """Generate a docstring result for a single class.
+
+        Args:
+            cls_meta: ClassMetadata for the class to document.
+            filepath: Absolute path to the source file.
+            source_lines: Source code lines for ignore directive checks.
+
+        Returns:
+            DocstringResult for the class.
+        """
+        from autodocstring.models.metadata import DocstringResult, RiskLevel
+
+        # Check ignore directive
+        if source_lines and _has_ignore_directive(source_lines, cls_meta.lineno):
+            return DocstringResult(
+                file=filepath,
+                function=cls_meta.name,
+                lineno=cls_meta.lineno,
+                skipped=True,
+                skip_reason="autodoc: ignore directive present",
+                generation_type="skipped",
+            )
+
+        # If class already has a valid docstring and we are not rewriting, skip
+        if cls_meta.docstring and not self.rewrite_existing:
+            return DocstringResult(
+                file=filepath,
+                function=cls_meta.name,
+                lineno=cls_meta.lineno,
+                docstring=cls_meta.docstring,
+                confidence=1.0,
+                risk=RiskLevel.LOW,
+                reason="existing class docstring retained",
+                skipped=False,
+                generation_type="existing",
+            )
+
+        # Generate via template
+        docstring = self._generator.generate_class_docstring(cls_meta)
+
+        # Replace the generic "{Name} class." placeholder with a smarter
+        # name-derived summary.  We deliberately skip the LLM here because
+        # generate_summary() is prompt-tuned for *functions* and produces
+        # poor/hallucinated results when called with a class name and no params.
+        placeholder = f"{cls_meta.name} class."
+        dataclass_placeholder = f"{cls_meta.name} dataclass."
+        if placeholder in docstring or dataclass_placeholder in docstring:
+            smart_summary = _derive_class_summary(cls_meta)
+            if placeholder in docstring:
+                docstring = docstring.replace(placeholder, smart_summary, 1)
+            else:
+                docstring = docstring.replace(dataclass_placeholder, smart_summary, 1)
+
+        gen_type = "template"
+
+        return DocstringResult(
+            file=filepath,
+            function=cls_meta.name,
+            lineno=cls_meta.lineno,
+            docstring=docstring,
+            confidence=1.0,
+            risk=RiskLevel.LOW,
+            reason="class docstring generated",
+            skipped=False,
+            generation_type=gen_type,
+        )
+
     def generate_for_module(
         self,
         module_metadata,
@@ -400,7 +468,7 @@ class HybridDocstringEngine:
             source_lines: Source code lines for ignore directive checks.
 
         Returns:
-            List of DocstringResult for every function and method found.
+            List of DocstringResult for every class, function and method found.
         """
         results: List = []
 
@@ -409,8 +477,11 @@ class HybridDocstringEngine:
             result = self.generate(func, filepath=filepath, source_lines=source_lines)
             results.append(result)
 
-        # Class methods
+        # Classes: generate class-level docstring THEN method docstrings
         for cls in module_metadata.classes:
+            cls_result = self.generate_class(cls, filepath=filepath, source_lines=source_lines)
+            results.append(cls_result)
+
             for method in cls.methods:
                 result = self.generate(
                     method, filepath=filepath, source_lines=source_lines
@@ -428,6 +499,7 @@ class HybridDocstringEngine:
         base_docstring: str,
         metadata: FunctionMetadata,
         scoring,
+        source_lines: Optional[List[str]] = None,
     ) -> tuple[str, bool]:
         """Replace only the summary block via LLM using structured extraction.
 
@@ -435,12 +507,37 @@ class HybridDocstringEngine:
             base_docstring: Deterministically generated docstring.
             metadata: Function metadata.
             scoring: ScoringResult from confidence scorer.
+            source_lines: Full source lines used to extract the function body.
 
         Returns:
             Tuple of (Docstring text, whether LLM was successfully used).
         """
         if self.provider is None or scoring.confidence < self._AUTO_APPLY:
             return base_docstring, False
+
+        # Extract a short body snippet (skip def line + existing docstring, max 8 lines)
+        body_snippet: Optional[str] = None
+        if source_lines and metadata.end_lineno > metadata.lineno:
+            raw = source_lines[metadata.lineno : metadata.end_lineno]  # lines after def
+            # Skip a leading docstring block
+            stripped = []
+            in_docstring = False
+            for line in raw:
+                ls = line.strip()
+                if ls.startswith('"""') or ls.startswith("'''"):
+                    in_docstring = not in_docstring
+                    # toggle again if open+close on same line
+                    if ls.count('"""') >= 2 or ls.count("'''") >= 2:
+                        in_docstring = False
+                    continue
+                if in_docstring:
+                    continue
+                if ls:
+                    stripped.append(line.rstrip())
+                if len(stripped) >= 8:
+                    break
+            if stripped:
+                body_snippet = "\n".join(stripped)
 
         metadata_dict = {
             "name": metadata.name,
@@ -449,17 +546,29 @@ class HybridDocstringEngine:
             ],
             "return_type": metadata.return_type or "None",
             "raises": metadata.raises,
+            "body_snippet": body_snippet,
         }
 
         try:
-            new_summary = self.provider.generate_summary(metadata_dict)
+            # Prefer structured generation (summary + params + returns) if provider supports it
+            if hasattr(self.provider, "generate_docstring_parts"):
+                parts = self.provider.generate_docstring_parts(metadata_dict)
+                new_summary = parts.get("summary") if parts else None
+                groq_params: dict = (parts.get("params") or {}) if parts else {}
+                groq_returns: Optional[str] = (parts.get("returns")) if parts else None
+            else:
+                new_summary = self.provider.generate_summary(metadata_dict)
+                groq_params = {}
+                groq_returns = None
         except Exception:
             new_summary = None
+            groq_params = {}
+            groq_returns = None
 
         if not new_summary or not new_summary.strip():
             return base_docstring, False
 
-        # Structured replacement: 
+        # ── Summary splice ────────────────────────────────────────────────
         # Identify the end of the summary paragraph by scanning for section headers or empty lines.
         lines = base_docstring.split("\n")
         
@@ -503,7 +612,30 @@ class HybridDocstringEngine:
             new_doc.pop()
         new_doc.append('"""')
         
-        return "\n".join(new_doc), True
+        result_doc = "\n".join(new_doc)
+
+        # ── Param description splice ──────────────────────────────────────
+        # All templates produce: f"The {name.replace('_',' ')} parameter."
+        # We replace those placeholders with Groq-generated descriptions.
+        if groq_params:
+            for p in metadata.parameters:
+                if p.name not in groq_params:
+                    continue
+                # Skip *args / **kwargs — they already have good defaults
+                if getattr(p, "is_args", False) or getattr(p, "is_kwargs", False):
+                    continue
+                placeholder = f"The {p.name.replace('_', ' ')} parameter."
+                new_desc = groq_params[p.name].strip().rstrip(".") + "."
+                if placeholder in result_doc:
+                    result_doc = result_doc.replace(placeholder, new_desc, 1)
+
+        # ── Returns description splice ────────────────────────────────────
+        # All templates produce: "Return value description."
+        if groq_returns and "Return value description." in result_doc:
+            new_ret = groq_returns.strip().rstrip(".") + "."
+            result_doc = result_doc.replace("Return value description.", new_ret, 1)
+
+        return result_doc, True
 
 
 def _has_ignore_directive(source_lines: List[str], lineno: int) -> bool:
@@ -520,3 +652,68 @@ def _has_ignore_directive(source_lines: List[str], lineno: int) -> bool:
     if preceding_idx < 0 or preceding_idx >= len(source_lines):
         return False
     return _IGNORE_DIRECTIVE in source_lines[preceding_idx]
+
+
+import re as _re
+
+def _derive_class_summary(cls_meta) -> str:
+    """Derive a meaningful one-line summary from a class name and its methods.
+
+    Splits CamelCase into words and maps well-known suffixes to an action
+    verb, so the result reads naturally in a docstring.
+
+    Examples::
+
+        DataProcessor  → "Processes and manages data items."
+        UserManager    → "Manages user records and operations."
+        FileHandler    → "Handles file reading and writing."
+        Calculator     → "Provides calculator functionality."
+
+    Args:
+        cls_meta: ClassMetadata instance.
+
+    Returns:
+        A capitalised summary sentence ending with a period.
+    """
+    name = cls_meta.name
+
+    # Split CamelCase → words
+    words = _re.sub(r'(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])', ' ', name).split()
+
+    suffix_map = {
+        "manager":   ("Manages",   "{prefix} records and operations."),
+        "handler":   ("Handles",   "{prefix} reading and writing."),
+        "processor": ("Processes", "{prefix} items and results."),
+        "generator": ("Generates", "{prefix} output and results."),
+        "builder":   ("Builds",    "{prefix} instances and structures."),
+        "parser":    ("Parses",    "{prefix} input and extracts structured data."),
+        "validator": ("Validates", "{prefix} input and enforces rules."),
+        "runner":    ("Runs",      "{prefix} tasks and executes logic."),
+        "client":    ("Provides",  "client interface for {prefix} operations."),
+        "service":   ("Provides",  "{prefix} service operations."),
+        "helper":    ("Provides",  "helper utilities for {prefix} operations."),
+        "factory":   ("Creates",   "{prefix} instances via factory pattern."),
+        "router":    ("Routes",    "{prefix} requests to handlers."),
+        "adapter":   ("Adapts",    "{prefix} interface for external use."),
+        "mixin":     ("Provides",  "{prefix} mixin behaviour."),
+    }
+
+    last_word = words[-1].lower() if words else ""
+    prefix_words = words[:-1] if len(words) > 1 else words
+
+    prefix = " ".join(w.lower() for w in prefix_words) if prefix_words else name.lower()
+
+    if last_word in suffix_map:
+        verb, template = suffix_map[last_word]
+        body = template.replace("{prefix}", prefix)
+        return f"{verb} {body}".capitalize()
+
+    # Fallback: describe using method names for context
+    method_names = [m.name for m in cls_meta.methods if not m.name.startswith("_")][:3]
+    if method_names:
+        ops = ", ".join(method_names)
+        noun = " ".join(w.lower() for w in words)
+        return f"Provides {noun} functionality including {ops}."
+
+    noun = " ".join(w.lower() for w in words)
+    return f"Provides {noun} functionality."

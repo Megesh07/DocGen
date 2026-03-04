@@ -272,10 +272,19 @@ class FunctionExtractor:
             if isinstance(child, ast.Raise):
                 if child.exc:
                     if isinstance(child.exc, ast.Call):
-                        if isinstance(child.exc.func, ast.Name):
-                            raises.append(child.exc.func.id)
+                        func = child.exc.func
+                        if isinstance(func, ast.Name):
+                            raises.append(func.id)
+                        elif isinstance(func, ast.Attribute):
+                            # e.g. raise module.SomeError()
+                            raises.append(func.attr)
                     elif isinstance(child.exc, ast.Name):
                         raises.append(child.exc.id)
+                    elif isinstance(child.exc, ast.Attribute):
+                        raises.append(child.exc.attr)
+            elif isinstance(child, ast.Assert):
+                # assert x, "msg" implicitly raises AssertionError
+                raises.append("AssertionError")
         return list(set(raises))  # Remove duplicates
 
 

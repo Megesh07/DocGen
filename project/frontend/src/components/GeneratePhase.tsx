@@ -11,30 +11,40 @@ interface LogLine {
   type: 'info' | 'success' | 'dim' | 'accent';
 }
 
-const LOG_SEQUENCES: LogLine[][] = [
-  [
-    { text: 'Initialising generation session…', type: 'dim' },
-    { text: 'Loading AI model (Ollama local)…', type: 'dim' },
-    { text: 'Model ready. Starting analysis…', type: 'info' },
-  ],
-  [
-    { text: 'Parsing Python AST…', type: 'info' },
-    { text: 'Identified function definitions', type: 'dim' },
-    { text: 'Building call graph…', type: 'dim' },
-  ],
-  [
-    { text: 'Generating docstrings…', type: 'accent' },
-    { text: 'Inferring parameter types from usage', type: 'dim' },
-    { text: 'Inferring return types from annotations', type: 'dim' },
-    { text: 'Writing documentation…', type: 'info' },
-  ],
-  [
-    { text: 'Patching source files…', type: 'accent' },
-    { text: 'Validating output syntax…', type: 'dim' },
-    { text: '✓ All files patched successfully', type: 'success' },
-    { text: 'Preview ready.', type: 'success' },
-  ],
-];
+function buildLogSequences(useAI: boolean): LogLine[][] {
+  return [
+    [
+      { text: 'Initialising generation session…', type: 'dim' },
+      useAI
+        ? { text: 'Connecting to Groq API…', type: 'dim' }
+        : { text: 'Template-only mode active…', type: 'dim' },
+      useAI
+        ? { text: 'Template + AI generation ready. Starting analysis…', type: 'info' }
+        : { text: 'Template generation ready. Starting analysis…', type: 'info' },
+    ],
+    [
+      { text: 'Parsing Python AST…', type: 'info' },
+      { text: 'Identified function definitions', type: 'dim' },
+      { text: 'Building call graph…', type: 'dim' },
+    ],
+    [
+      useAI
+        ? { text: 'Generating docstrings via Template + AI…', type: 'accent' }
+        : { text: 'Generating docstrings via Template…', type: 'accent' },
+      { text: 'Inferring parameter types from usage', type: 'dim' },
+      { text: 'Inferring return types from annotations', type: 'dim' },
+      { text: 'Writing documentation…', type: 'info' },
+    ],
+    [
+      { text: 'Patching source files…', type: 'accent' },
+      { text: 'Validating output syntax…', type: 'dim' },
+      useAI
+        ? { text: '✓ All files patched successfully (Template + AI)', type: 'success' }
+        : { text: '✓ All files patched successfully (Template only)', type: 'success' },
+      { text: 'Preview ready.', type: 'success' },
+    ],
+  ];
+}
 
 export function GeneratePhase({ fileCount, filePaths }: Props) {
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -42,6 +52,9 @@ export function GeneratePhase({ fileCount, filePaths }: Props) {
   const logRef = useRef<HTMLDivElement>(null);
   const report = useSessionStore(state => state.report);
   const docstringStyle = useSessionStore(state => state.docstringStyle);
+  const llmProvider = useSessionStore(state => state.llmProvider);
+  const useAI = llmProvider === 'local' || llmProvider === 'gemini';
+  const LOG_SEQUENCES = buildLogSequences(useAI);
   const styleLabel = docstringStyle.charAt(0).toUpperCase() + docstringStyle.slice(1);
   const styleColors: Record<string, { text: string; bg: string; border: string }> = {
     google: { text: '#b45309', bg: '#fffbeb', border: '#fcd34d' },

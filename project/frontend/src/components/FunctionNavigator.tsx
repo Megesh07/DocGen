@@ -104,6 +104,24 @@ export function FunctionNavigator({ files, activeFile, onSelectFile, onDownload 
         Navigator
       </div>
 
+      {/* Dot legend */}
+      <div style={{
+        padding: '6px 14px 6px',
+        borderBottom: '1px solid var(--border)',
+        display: 'flex', gap: 10, flexWrap: 'wrap', flexShrink: 0,
+      }}>
+        {([
+          { color: '#059669', label: 'Generated' },
+          { color: '#3b82f6', label: 'Pre-existing' },
+          { color: '#d1d5db', label: 'Skipped' },
+        ] as const).map(({ color, label }) => (
+          <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
+            <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{label}</span>
+          </span>
+        ))}
+      </div>
+
       {/* Scrollable list — split into two labeled sections */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
         {(() => {
@@ -135,6 +153,12 @@ export function FunctionNavigator({ files, activeFile, onSelectFile, onDownload 
 
             const entries = parseEntries(fileData.documentedContent || fileData.originalContent);
             const docBlocks = findDocstringBlocks(fileData.documentedContent || '');
+
+            // For accurate "new vs pre-existing" detection we compare against the
+            // ORIGINAL source — this catches classes too, not just functions.
+            const originalEntries = parseEntries(fileData.originalContent || '');
+            const originalDocBlocks = findDocstringBlocks(fileData.originalContent || '');
+
             const undocumentedInFile = report?.undocumentedList.filter(u => u.file === fp) || [];
 
             const fileStats = report?.perFile?.find(f => f.file === fp);
@@ -202,13 +226,25 @@ export function FunctionNavigator({ files, activeFile, onSelectFile, onDownload 
                 {showEntries && entries.map((entry, j) => {
                   const docBlock = docBlocks.find(b => b.start === entry.lineno + 1 || b.start === entry.lineno + 2);
                   const hasDoc = !!docBlock;
-                  const wasUndocumented = undocumentedInFile.some(u =>
-                    u.name === entry.name || entry.name.endsWith(`.${u.name}`) || u.name.endsWith(`.${entry.name}`)
-                  );
-                  const isNew = hasDoc && wasUndocumented;
-                  const isPreExisting = hasDoc && !wasUndocumented;
+
+                  // Find this entry in the ORIGINAL file by name and check whether
+                  // it already had a docstring on the line immediately following the
+                  // def/class.  This is accurate for both functions AND classes, so
+                  // no separate undocumentedList fallback is needed.
+                  const origEntry = originalEntries.find(e => e.name === entry.name);
+                  const hadDocOriginal = origEntry
+                    ? originalDocBlocks.some(b =>
+                        b.start === origEntry.lineno + 1 || b.start === origEntry.lineno + 2
+                      )
+                    : false;
+
+                  // green = new docstring (engine generated it)
+                  // blue  = pre-existing docstring (was already there, possibly updated in style)
+                  // grey  = no docstring after generation (skipped by engine)
+                  const isNew = hasDoc && !hadDocOriginal;
+                  const isPreExisting = hasDoc && hadDocOriginal;
                   const dotColor = isNew ? '#059669' : isPreExisting ? '#3b82f6' : '#d1d5db';
-                  const docStatusTitle = isNew ? 'AI Generated' : isPreExisting ? 'Pre-existing' : 'No Docstring';
+                  const docStatusTitle = isNew ? 'Generated' : isPreExisting ? 'Pre-existing' : 'Skipped';
 
                   return (
                     <button
