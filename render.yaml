@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: docgen-backend
+    runtime: python
+    region: oregon
+    plan: free
+    branch: main
+
+    # Install the package with the Groq HTTP client included
+    buildCommand: pip install -e ".[llm]"
+
+    # $PORT is injected by Render; --app-dir tells uvicorn where the package lives
+    startCommand: uvicorn autodocstring.api.app:app --host 0.0.0.0 --port $PORT --app-dir src
+
+    # Health check — Render marks the service as healthy when this returns 200
+    healthCheckPath: /api/v1/health
+
+    envVars:
+      # ── Required ────────────────────────────────────────────────────────────
+      - key: GROQ_API_KEY
+        sync: false          # set manually in Render dashboard (never committed)
+
+      # ── CORS ────────────────────────────────────────────────────────────────
+      # Replace <YOUR_VERCEL_URL> with your actual Vercel deployment URL
+      # e.g. https://docgen-frontend.vercel.app
+      - key: ALLOWED_ORIGINS
+        value: https://your-vercel-app.vercel.app
+
+      # ── Session storage ─────────────────────────────────────────────────────
+      # /tmp is always writable on Render; sessions are ephemeral (2-hour TTL)
+      - key: SESSION_DIR
+        value: /tmp/autodocstring_sessions
+
+      - key: BACKUP_DIR
+        value: /tmp/autodocstring_backup
+
+      # ── Python path ─────────────────────────────────────────────────────────
+      - key: PYTHONPATH
+        value: src

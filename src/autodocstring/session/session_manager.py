@@ -24,6 +24,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -36,8 +37,10 @@ from autodocstring.core.decision_model import DecisionRecord
 logger = logging.getLogger(__name__)
 
 SESSION_TTL_HOURS: int = 2
-_SESSIONS_DIR = Path(".autodocstring_sessions")
-_BACKUP_ROOT = Path(".autodocstring_backup")
+# Allow the sessions directory to be overridden via env var so that
+# cloud deployments (e.g. Render) can point to /tmp which is always writable.
+_SESSIONS_DIR = Path(os.getenv("SESSION_DIR", ".autodocstring_sessions"))
+_BACKUP_ROOT = Path(os.getenv("BACKUP_DIR", ".autodocstring_backup"))
 _CLEANUP_INTERVAL_SECS: int = 30 * 60  # 30 minutes
 
 
