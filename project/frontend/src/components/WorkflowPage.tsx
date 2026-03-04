@@ -200,7 +200,7 @@ export function WorkflowPage() {
       setReport(rpt);
       setRawFunctions(rescan.functions);
     } catch (err: any) {
-      setError(err.message || 'Rescan failed');
+      useSessionStore.getState().setErrorOnly(err.message || 'Rescan failed');
       return;
     }
     startGenerating();
@@ -250,11 +250,14 @@ export function WorkflowPage() {
         useSessionStore.getState().setActiveFile(firstChanged.path);
       }
     } catch (err: any) {
-      setError(err.message || 'Generation failed');
-      // Restore to 'analyzed' so user can retry without re-uploading
+      // Use setErrorOnly so the error banner shows but the user stays on the
+      // Inspect page (setError would reset phase to 'idle' = Upload page).
       const s = useSessionStore.getState();
       if (s.sessionId && s.report) {
+        s.setErrorOnly(err.message || 'Generation failed');
         s.setPhase('analyzed');
+      } else {
+        setError(err.message || 'Generation failed');
       }
     }
   };
@@ -285,8 +288,17 @@ export function WorkflowPage() {
         }}>
           <span>⚠️</span>
           <span style={{ flex: 1 }}>{error}</span>
-          <button onClick={store.reset} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontWeight: 600, fontSize: 13 }}>
-            Try Again
+          <button
+            onClick={() => {
+              if (sessionId && report) {
+                store.setErrorOnly('');
+              } else {
+                store.reset();
+              }
+            }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontWeight: 600, fontSize: 13 }}
+          >
+            {sessionId && report ? 'Dismiss' : 'Try Again'}
           </button>
         </div>
       )}

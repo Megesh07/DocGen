@@ -81,6 +81,7 @@ interface SessionState {
   setLlmProvider: (provider: 'local' | 'gemini') => void;
   setDocstringStyle: (style: 'google' | 'numpy' | 'rest' | 'epytext' | 'sphinx') => void;
   setError: (msg: string) => void;
+  setErrorOnly: (msg: string) => void;
   reset: () => void;
   setPhase: (phase: Phase) => void;
 }
@@ -147,6 +148,10 @@ export const useSessionStore = create<SessionState>((set) => ({
   setDocstringStyle: (style) => set({ docstringStyle: style }),
 
   setError: (msg) => set({ error: msg, phase: 'idle' }),
+
+  // Sets the error banner without changing the current phase (e.g. keep user
+  // on the Inspect page after a generate failure so they can retry).
+  setErrorOnly: (msg) => set({ error: msg }),
 
   reset: () => set(defaultState),
 

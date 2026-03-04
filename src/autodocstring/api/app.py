@@ -43,6 +43,12 @@ _API_VERSION = "2.0.0"
 _start_time: datetime = datetime.utcnow()
 _ALLOWED_STYLES = {"google", "numpy", "rest", "epytext", "sphinx"}
 
+# Resolved sessions root — may live outside PROJECT_ROOT on cloud deployments
+# (e.g. Render sets SESSION_DIR=/tmp). We import the same env-driven value used
+# by the session manager so the sandbox check stays in sync.
+from autodocstring.session.session_manager import _SESSIONS_DIR as _SM_SESSIONS_DIR
+_SESSIONS_ROOT: Path = _SM_SESSIONS_DIR.resolve()
+
 
 def _normalize_style(style: Optional[str]) -> str:
     style_value = (style or "google").strip().lower()
@@ -168,9 +174,23 @@ def _resolve_safe_path(raw_path: str) -> Path:
     except (ValueError, OSError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid path: {e}")
 
+    # Allow paths that live under the project root OR under the sessions
+    # directory (which may be /tmp or another location on cloud deployments).
+    in_project = False
     try:
         resolved.relative_to(PROJECT_ROOT)
+        in_project = True
     except ValueError:
+        pass
+
+    if not in_project:
+        try:
+            resolved.relative_to(_SESSIONS_ROOT)
+            in_project = True
+        except ValueError:
+            pass
+
+    if not in_project:
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not resolved.exists():
