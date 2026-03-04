@@ -79,7 +79,10 @@ dmypy.json
 **/node_modules/
 **/.vite/
 
-# Local env overrides (may contain real secrets — never commit)
+# Environment variable files (may contain real secrets — never commit)
+.env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 **/.env.local

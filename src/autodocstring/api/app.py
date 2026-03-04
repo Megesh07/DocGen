@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT: Path = Path(os.getcwd()).resolve()
 MAX_FUNCTIONS_PER_REQUEST: int = 2000
-_API_VERSION = "1.0"
+_API_VERSION = "2.0.0"
 _start_time: datetime = datetime.utcnow()
 _ALLOWED_STYLES = {"google", "numpy", "rest", "epytext", "sphinx"}
 
